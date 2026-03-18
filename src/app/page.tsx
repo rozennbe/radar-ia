@@ -30,29 +30,45 @@ export default function Home() {
     try {
       // Step 1: Fetch raw RSS articles
       const rssRes = await fetch('/api/fetch-rss');
-      const rssData = await rssRes.json();
+      if (!rssRes.ok) throw new Error(`Erreur RSS: ${rssRes.status}`);
+      const rssText = await rssRes.text();
+      let rssData;
+      try { rssData = JSON.parse(rssText); } catch { throw new Error('Reponse RSS invalide'); }
       if (rssData.error) throw new Error(rssData.error);
       const rawArticles = rssData.articles;
       setLoadingProgress(`${rawArticles.length} articles trouves. Classification en cours...`);
 
-      // Step 2: Classify in batches of 10
-      const batchSize = 10;
+      // Step 2: Classify in batches of 5 (small to avoid Vercel 10s timeout)
+      const batchSize = 5;
       const allArticles: Article[] = [];
 
       for (let i = 0; i < rawArticles.length; i += batchSize) {
         const batch = rawArticles.slice(i, i + batchSize);
         const batchNum = Math.floor(i / batchSize) + 1;
         const totalBatches = Math.ceil(rawArticles.length / batchSize);
-        setLoadingProgress(`Analyse batch ${batchNum}/${totalBatches}...`);
+        setLoadingProgress(`Analyse ${batchNum}/${totalBatches}...`);
 
-        const classRes = await fetch('/api/classify-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ articles: batch }),
-        });
-        const classData = await classRes.json();
-        if (classData.error) throw new Error(classData.error);
-        allArticles.push(...classData.articles);
+        try {
+          const classRes = await fetch('/api/classify-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ articles: batch }),
+          });
+          if (!classRes.ok) {
+            console.warn(`Batch ${batchNum} failed (${classRes.status}), skipping`);
+            continue;
+          }
+          const text = await classRes.text();
+          const classData = JSON.parse(text);
+          if (classData.error) {
+            console.warn(`Batch ${batchNum} error: ${classData.error}, skipping`);
+            continue;
+          }
+          allArticles.push(...classData.articles);
+        } catch (batchErr) {
+          console.warn(`Batch ${batchNum} exception, skipping:`, batchErr);
+          continue;
+        }
       }
 
       // Sort by score

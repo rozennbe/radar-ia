@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const articlesText = articles
-      .map((a, i) => `[${i}] Titre: ${a.title}\nSource: ${a.source}\nContenu: ${a.content.slice(0, 800)}`)
+      .map((a, i) => `[${i}] Titre: ${a.title}\nSource: ${a.source}\nContenu: ${a.content.slice(0, 500)}`)
       .join('\n\n---\n\n');
 
     const prompt = `Tu es une experte IA qui fait de la veille pour une consultante Sopra Steria Next spécialisée en IA appliquée aux secteurs santé, transport, marketing/CRM, et éducation. Elle est aussi entrepreneuse (éducation, entrepreneuriat féminin).
