@@ -54,8 +54,10 @@ TON DES RÉSUMÉS : Direct, piquant, sans jargon. Comme une collègue experte qu
 ARTICLES :
 ${articlesText}
 
+TITRE : Traduis TOUJOURS le titre en français. Si le titre original est en anglais, traduis-le de façon naturelle et percutante.
+
 Retourne UNIQUEMENT un JSON array (pas de markdown, pas de commentaires) :
-[{"index": 0, "summary": "...", "category": "...", "score": 7}, ...]`;
+[{"index": 0, "title": "Titre en français", "summary": "...", "category": "...", "score": 7}, ...]`;
 
   try {
     const response = await anthropic.messages.create({
@@ -77,7 +79,7 @@ Retourne UNIQUEMENT un JSON array (pas de markdown, pas de commentaires) :
       const score = Math.min(10, Math.max(1, c.score));
       return {
         id: Buffer.from(original.url || original.title).toString('base64').slice(0, 20),
-        title: original.title,
+        title: c.title || original.title,
         url: original.url,
         source: original.source,
         sourceType: 'rss' as const,
