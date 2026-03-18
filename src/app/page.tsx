@@ -16,6 +16,7 @@ export default function Home() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [stats, setStats] = useState<Stats>({ total: 0, red: 0, yellow: 0, green: 0 });
   const [loading, setLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState('');
   const [activeCategory, setActiveCategory] = useState<Category | 'all'>('all');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [generatingAudio, setGeneratingAudio] = useState(false);
@@ -25,16 +26,49 @@ export default function Home() {
   const fetchArticles = async () => {
     setLoading(true);
     setError(null);
+    setLoadingProgress('Recuperation des flux RSS...');
     try {
-      const res = await fetch('/api/fetch-articles');
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setArticles(data.articles);
-      setStats(data.stats);
+      // Step 1: Fetch raw RSS articles
+      const rssRes = await fetch('/api/fetch-rss');
+      const rssData = await rssRes.json();
+      if (rssData.error) throw new Error(rssData.error);
+      const rawArticles = rssData.articles;
+      setLoadingProgress(`${rawArticles.length} articles trouves. Classification en cours...`);
+
+      // Step 2: Classify in batches of 10
+      const batchSize = 10;
+      const allArticles: Article[] = [];
+
+      for (let i = 0; i < rawArticles.length; i += batchSize) {
+        const batch = rawArticles.slice(i, i + batchSize);
+        const batchNum = Math.floor(i / batchSize) + 1;
+        const totalBatches = Math.ceil(rawArticles.length / batchSize);
+        setLoadingProgress(`Analyse batch ${batchNum}/${totalBatches}...`);
+
+        const classRes = await fetch('/api/classify-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ articles: batch }),
+        });
+        const classData = await classRes.json();
+        if (classData.error) throw new Error(classData.error);
+        allArticles.push(...classData.articles);
+      }
+
+      // Sort by score
+      allArticles.sort((a, b) => b.score - a.score);
+      setArticles(allArticles);
+      setStats({
+        total: allArticles.length,
+        red: allArticles.filter((a) => a.scoreLevel === 'red').length,
+        yellow: allArticles.filter((a) => a.scoreLevel === 'yellow').length,
+        green: allArticles.filter((a) => a.scoreLevel === 'green').length,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur inconnue');
     } finally {
       setLoading(false);
+      setLoadingProgress('');
     }
   };
 
@@ -216,7 +250,7 @@ export default function Home() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32">
             <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-            <p className="text-gray-400 text-sm">Recuperation et analyse des articles...</p>
+            <p className="text-gray-400 text-sm">{loadingProgress || 'Recuperation et analyse des articles...'}</p>
             <p className="text-gray-600 text-xs mt-1">Cela peut prendre 1-2 minutes</p>
           </div>
         ) : articles.length === 0 ? (
