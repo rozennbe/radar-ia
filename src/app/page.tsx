@@ -159,21 +159,23 @@ export default function Home() {
 
       const fullScript = scriptParts.join('\n\n');
 
-      // Step 2: Split script and generate audio chunks
-      const chunks = splitText(fullScript, 4500);
+      // Step 2: Split script into small chunks and generate audio
+      const chunks = splitText(fullScript, 2000);
       const audioChunks: string[] = [];
 
       for (let i = 0; i < chunks.length; i++) {
         setAudioProgress(`Synthese vocale ${i + 1}/${chunks.length}...`);
-        const ttsRes = await fetch('/api/tts-chunk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: chunks[i] }),
-        });
-        const ttsData = await ttsRes.json();
-        if (ttsData.error) throw new Error(ttsData.error);
-        audioChunks.push(ttsData.audio);
+        try {
+          const ttsData = await callApi('/api/tts-chunk', { text: chunks[i] });
+          if ((ttsData as { audio: string }).audio) {
+            audioChunks.push((ttsData as { audio: string }).audio);
+          }
+        } catch (ttsErr) {
+          console.warn(`TTS chunk ${i + 1} failed, skipping:`, ttsErr);
+        }
       }
+
+      if (audioChunks.length === 0) throw new Error('Aucun chunk audio genere');
 
       // Step 3: Combine base64 chunks into a single audio blob
       const combined = audioChunks.map(b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
