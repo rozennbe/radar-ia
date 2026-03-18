@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { fetchAllRSS } from '@/lib/rss';
 import { classifyAndSummarize } from '@/lib/claude';
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function GET() {
   try {

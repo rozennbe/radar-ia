@@ -19,6 +19,7 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState<Category | 'all'>('all');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [generatingAudio, setGeneratingAudio] = useState(false);
+  const [audioProgress, setAudioProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const fetchArticles = async () => {
@@ -37,19 +38,68 @@ export default function Home() {
     }
   };
 
+  const splitText = (text: string, maxLen: number): string[] => {
+    const chunks: string[] = [];
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    let current = '';
+    for (const s of sentences) {
+      if ((current + ' ' + s).length > maxLen && current.length > 0) {
+        chunks.push(current.trim());
+        current = s;
+      } else {
+        current = current ? current + ' ' + s : s;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+  };
+
   const handleGenerateAudio = async () => {
     setGeneratingAudio(true);
+    setError(null);
     try {
-      const res = await fetch('/api/generate-audio', {
+      // Step 1: Generate script via Claude
+      setAudioProgress('Generation du script...');
+      const scriptRes = await fetch('/api/generate-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articles }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setAudioUrl(data.audioUrl);
+      const scriptData = await scriptRes.json();
+      if (scriptData.error) throw new Error(scriptData.error);
+
+      // Step 2: Split script and generate audio chunks
+      const chunks = splitText(scriptData.script, 4500);
+      const audioChunks: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        setAudioProgress(`Synthese vocale ${i + 1}/${chunks.length}...`);
+        const ttsRes = await fetch('/api/tts-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunks[i] }),
+        });
+        const ttsData = await ttsRes.json();
+        if (ttsData.error) throw new Error(ttsData.error);
+        audioChunks.push(ttsData.audio);
+      }
+
+      // Step 3: Combine base64 chunks into a single audio blob
+      const combined = audioChunks.map(b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+      const totalLen = combined.reduce((sum, arr) => sum + arr.length, 0);
+      const merged = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const arr of combined) {
+        merged.set(arr, offset);
+        offset += arr.length;
+      }
+      const blob = new Blob([merged], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+      setAudioProgress('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erreur audio');
+      setAudioProgress('');
     } finally {
       setGeneratingAudio(false);
     }
@@ -113,7 +163,7 @@ export default function Home() {
             >
               {generatingAudio ? (
                 <>
-                  <span className="animate-pulse">🎙️</span> Generation en cours...
+                  <span className="animate-pulse">🎙️</span> {audioProgress || 'Generation en cours...'}
                 </>
               ) : (
                 <>🎧 Generer le resume audio (15 min)</>
