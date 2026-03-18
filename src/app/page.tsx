@@ -104,22 +104,63 @@ export default function Home() {
     return chunks;
   };
 
+  const callApi = async (url: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`Erreur ${res.status}`);
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { throw new Error('Reponse invalide du serveur'); }
+  };
+
   const handleGenerateAudio = async () => {
     setGeneratingAudio(true);
     setError(null);
     try {
-      // Step 1: Generate script via Claude
-      setAudioProgress('Generation du script...');
-      const scriptRes = await fetch('/api/generate-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articles }),
+      const relevant = articles.filter(a => a.scoreLevel === 'red' || a.scoreLevel === 'yellow');
+      const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+      // Group by category
+      const byCategory: Record<string, typeof relevant> = {};
+      for (const a of relevant) {
+        if (!byCategory[a.category]) byCategory[a.category] = [];
+        byCategory[a.category].push(a);
+      }
+      const categories = Object.keys(byCategory);
+
+      // Step 1: Generate script parts sequentially
+      const scriptParts: string[] = [];
+
+      setAudioProgress('Script: introduction...');
+      const introData = await callApi('/api/generate-script-part', {
+        part: 'intro', date: today, totalArticles: relevant.length,
       });
-      const scriptData = await scriptRes.json();
-      if (scriptData.error) throw new Error(scriptData.error);
+      scriptParts.push((introData as { text: string }).text);
+
+      for (let i = 0; i < categories.length; i++) {
+        const cat = categories[i];
+        setAudioProgress(`Script: ${cat} (${i + 1}/${categories.length})...`);
+        const catData = await callApi('/api/generate-script-part', {
+          part: 'category',
+          categoryName: cat,
+          articles: byCategory[cat].map(a => ({ title: a.title, source: a.source, summary: a.summary, score: a.score })),
+        });
+        scriptParts.push((catData as { text: string }).text);
+      }
+
+      setAudioProgress('Script: conclusion...');
+      const topArticles = relevant.slice(0, 3).map(a => ({ title: a.title, summary: a.summary }));
+      const concData = await callApi('/api/generate-script-part', {
+        part: 'conclusion', topArticles,
+      });
+      scriptParts.push((concData as { text: string }).text);
+
+      const fullScript = scriptParts.join('\n\n');
 
       // Step 2: Split script and generate audio chunks
-      const chunks = splitText(scriptData.script, 4500);
+      const chunks = splitText(fullScript, 4500);
       const audioChunks: string[] = [];
 
       for (let i = 0; i < chunks.length; i++) {
